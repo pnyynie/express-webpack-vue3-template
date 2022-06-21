@@ -2,13 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const resolve = url => path.resolve(__dirname, url);
 const utils = require('./utils');
-const createEnvironmentHash = require('./createEnvironmentHash');
 
+const webpack = require('webpack');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const { VueLoaderPlugin } = require('vue-loader');
 const TerserPlugin = require('terser-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
+const { CleanWebpackPlugin } = require("clean-webpack-plugin");
+const AutoImport = require('unplugin-auto-import/webpack')
+const Components = require('unplugin-vue-components/webpack')
+const { ElementPlusResolver } = require('unplugin-vue-components/resolvers')
 
 const paths = {
   src: resolve('../client/src'),
@@ -18,6 +22,11 @@ const paths = {
   entrys: {},
   appWebpackCache: resolve('../node_modules/.cache'),
 };
+
+const cssRegex = /\.css$/;
+const cssModuleRegex = /\.module\.css$/;
+const sassRegex = /\.(scss|sass)$/;
+const sassModuleRegex = /\.module\.(scss|sass)$/;
 
 const entryPath = resolve('../client/entry');
 fs.readdirSync(entryPath).forEach(file => {
@@ -29,12 +38,20 @@ module.exports = function (env) {
   const isProd = env === 'production';
 
   const prodPlugins = [];
+  const devPlugins = [];
   if (isProd) {
     prodPlugins.push(
       new MiniCssExtractPlugin({
         filename: '[name].[contenthash].css',
       })
     );
+  } else {
+    devPlugins.push(
+      new webpack.HotModuleReplacementPlugin(),
+    )
+    devPlugins.push(
+      new CleanWebpackPlugin(),
+    )
   }
 
   const entry = {};
@@ -54,7 +71,7 @@ module.exports = function (env) {
     },
     cache: {
       type: 'filesystem',
-      version: createEnvironmentHash({ env }),
+      version: utils.createEnvironmentHash({ env }),
       cacheDirectory: paths.appWebpackCache,
       store: 'pack',
       buildDependencies: {
@@ -87,6 +104,7 @@ module.exports = function (env) {
         ],
       }),
       ...prodPlugins,
+      ...devPlugins,
       ...Object.keys(paths.entrys).map(filename => {
         const _path = paths.html + '/' + filename + '.html';
         const template = utils.fileExists(_path) ? _path : paths.html + '/template.html';
@@ -103,22 +121,28 @@ module.exports = function (env) {
             },
             isProd
               ? {
-                  minify: {
-                    removeComments: true,
-                    collapseWhitespace: true,
-                    removeRedundantAttributes: true,
-                    useShortDoctype: true,
-                    removeEmptyAttributes: true,
-                    removeStyleLinkTypeAttributes: true,
-                    keepClosingSlash: true,
-                    minifyJS: true,
-                    minifyCSS: true,
-                    minifyURLs: true,
-                  },
-                }
+                minify: {
+                  removeComments: true,
+                  collapseWhitespace: true,
+                  removeRedundantAttributes: true,
+                  useShortDoctype: true,
+                  removeEmptyAttributes: true,
+                  removeStyleLinkTypeAttributes: true,
+                  keepClosingSlash: true,
+                  minifyJS: true,
+                  minifyCSS: true,
+                  minifyURLs: true,
+                },
+              }
               : undefined
           )
         );
+      }),
+      AutoImport({
+        resolvers: [ElementPlusResolver()],
+      }),
+      Components({
+        resolvers: [ElementPlusResolver()],
       }),
     ],
     module: {
@@ -135,7 +159,23 @@ module.exports = function (env) {
         },
         {
           test: /\.vue$/,
-          loader: 'vue-loader',
+          loader: 'vue-loader'
+        },
+        {
+          test: /\.css$/i,
+          use: [
+            isProd ? MiniCssExtractPlugin.loader : 'style-loader',
+            'css-loader',
+            {
+              loader: 'postcss-loader',
+              options: {
+                postcssOptions: {
+                  plugins: ['postcss-preset-env'],
+                },
+              },
+            },
+            'sass-loader',
+          ],
         },
         {
           test: /\.s[ac]ss$/i,
